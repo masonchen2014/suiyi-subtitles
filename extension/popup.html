@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>随译</title>
+<style>
+*{box-sizing:border-box}body{width:360px;margin:0;padding:22px;font:13px/1.6 system-ui;background:#f6f8fc;color:#182232}header{display:flex;align-items:center;gap:10px}h1{font-size:28px;margin:0;letter-spacing:2px}.badge{font-size:12px;background:#e1f3e8;color:#187442;padding:2px 8px;border-radius:20px}.tagline{color:#596477;margin:3px 0 16px}label{display:block;margin:10px 0 4px}input,select,button{width:100%;padding:9px;border:1px solid #ccd3df;border-radius:8px;background:white;font:inherit;color:inherit}input:focus,select:focus{outline:2px solid #9ebaff;outline-offset:1px}button{cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:#245eea;color:white;border-color:#245eea}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{margin-top:16px}.check{display:flex;align-items:center;gap:7px}.check input{width:auto}small{display:block;font-size:11px;color:#68748a;margin-top:5px}#status{margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere}#destination{overflow-wrap:anywhere}details{margin-top:12px}summary{cursor:pointer;color:#2453a8}footer{margin-top:15px;padding-top:12px;border-top:1px solid #e0e5ee;color:#68748a;font-size:11px}
+</style>
+<header><h1>随译</h1><span class="badge">免费插件</span></header>
+<p class="tagline">自带 Key，自由选模型，视频轻松看懂。</p>
+<small id="version"></small><button id="update" hidden>应用本地更新并刷新课程页</button>
+<div class="row">
+  <div><label for="enabled">字幕助手</label><select id="enabled"><option value="true">开启</option><option value="false">关闭</option></select></div>
+  <div><label for="mode">字幕处理</label><select id="mode"><option value="translate">翻译为双语</option><option value="direct">只显示原字幕</option></select></div>
+</div>
+<label for="presetId">模型服务商</label><select id="presetId"></select>
+<label for="apiKey">你的 API Key</label><input id="apiKey" type="password" placeholder="填写所选服务商的密钥" autocomplete="off" spellcheck="false">
+<label for="model">模型 ID</label><input id="model" placeholder="从服务商控制台复制模型 ID" spellcheck="false">
+<label for="targetLanguage">翻译为</label><select id="targetLanguage"><option value="Chinese">中文</option><option value="English">英语</option><option value="Japanese">日语</option><option value="Korean">韩语</option><option value="Spanish">西班牙语</option><option value="French">法语</option><option value="German">德语</option></select>
+<details id="advanced"><summary>接口设置 / 自定义厂商</summary>
+  <label for="protocol">接口协议</label><select id="protocol"><option value="openai">OpenAI 兼容 · Chat Completions</option><option value="anthropic">Anthropic · Messages</option><option value="gemini">Gemini · GenerateContent</option><option value="qwen-mt">通义翻译专用 · Qwen-MT</option></select>
+  <label for="baseUrl">API Base URL</label><input id="baseUrl" type="url" placeholder="https://你的服务商/v1" spellcheck="false">
+  <small>填写服务商的接口根地址；OpenAI 兼容地址无需加 /chat/completions。</small>
+  <label class="check"><input id="noKey" type="checkbox">本机服务无需 API Key</label>
+</details>
+<small id="destination"></small>
+<div class="row actions"><button id="test" disabled>测试并开启字幕</button><button class="primary" id="save" disabled>保存设置</button></div>
+<small>测试会调用一次模型；成功后自动保存配置并开启双语字幕。</small>
+<div id="status" role="status" aria-live="polite"></div>
+<footer>无需随译账号或会员。插件免费，模型 API 用量由服务商计费；免费额度以服务商为准。密钥仅存在本机，字幕直接发送至你选择的接口。YouTube 请开启 CC；DeepLearning.AI 自动读取本课字幕。</footer>
+<script src="models.js"></script><script src="popup.js"></script>
+</html>

@@ -1,0 +1,50 @@
+{
+  "props": {
+    "pageProps": {
+      "courseName": "retrieval-augmented-generation",
+      "lessonId": "rrngb",
+      "videoId": 10171662,
+      "trpcState": {
+        "json": {
+          "queries": [
+            {
+              "state": {
+                "data": {
+                  "captions": [
+                    {
+                      "startInSeconds": 0,
+                      "endInSeconds": 3,
+                      "text": "Welcome to our subtitle test lesson."
+                    },
+                    {
+                      "startInSeconds": 4,
+                      "endInSeconds": 9,
+                      "text": "Retrieval Augmented Generation, or RAG, is the topic of"
+                    },
+                    {
+                      "startInSeconds": 9,
+                      "endInSeconds": 15,
+                      "text": "this synthetic example sentence for testing."
+                    }
+                  ]
+                }
+              },
+              "queryKey": [
+                [
+                  "course",
+                  "getLessonVideoSubtitle"
+                ],
+                {
+                  "input": {
+                    "videoId": 10171662
+                  },
+                  "type": "query"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

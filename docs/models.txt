@@ -1,0 +1,31 @@
+随译模型层
+
+models.js 对外暴露 SuiyiModels.translate(config, text) -> Promise<string>。
+网站适配在 adapters.js，播放同步在 content.js，权限与缓存调度在 background.js。
+这三层不需要知道厂商的请求格式。
+
+config:
+  presetId        设置页的配置档案 ID，不决定底层协议
+  protocol        openai | anthropic | gemini | qwen-mt
+  baseUrl         服务商的 API 根地址，包含所需版本路径
+  model           任意有效模型 ID
+  apiKey          用户自带密钥，仅在可信扩展上下文读取
+  useApiKey       false 仅允许用于本机服务
+  targetLanguage  Chinese | English | Japanese | Korean | Spanish | French | German
+
+调用过程：配置归一化 -> 主机权限检查 -> 读取独立缓存 -> 构造请求 -> fetch -> 解析文本 -> 写入缓存。
+不使用服务商 SDK，采用标准 HTTPS JSON 请求，不允许请求携带凭据重定向。
+OpenAI 兼容请求使用 system/user messages，不夹带通义专用字段。
+Qwen-MT 的 translation_options 只在 qwen-mt 协议中发送。
+Claude/Gemini 使用各自原生鉴权与响应解析，不将思考内容当作译文。
+
+新增兼容厂商：填写自定义 Base URL 与模型即可，无需改代码。
+新增非兼容协议：扩展 models.js 的 normalize/request/parse，保持 translate 的契约不变。
+专用鉴权、云平台签名或其他未实现协议，需要增加对应适配，不能仅靠修改地址接入。
+
+权限：manifest 声明两个支持的网站和默认百炼地址；其他模型接口作为可选权限，在用户保存/测试时按主机申请。
+配置迁移：readConfig 兼容旧版顶层 apiKey/model；保存成功后转换为 providerConfig 与 modelProfiles。
+缓存：协议、地址、模型、目标语言、字幕、提示词版本共同决定，不含密钥。
+
+验证：22 项核心自动测试、设置页与字幕隔离浏览器测试，以及实际安装扩展的端到端测试已通过。
+真实厂商 API 仍需用户提供有效 Key 后使用设置页测试，不宣称所有厂商均已实测。
