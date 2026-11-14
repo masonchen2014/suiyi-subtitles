@@ -34,15 +34,15 @@ const url = 'https://learn.deeplearning.ai/courses/retrieval-augmented-generatio
           }
           window.requests.push(message.text);
           if (window.translationDelay) await new Promise(resolve => setTimeout(resolve, window.translationDelay));
-          return { text: '测试译文：' + message.text };
+          if (window.longTranslation) return { text: window.longTranslation };
+          return { text: '测试译文：' + (message.text.startsWith('Welcome') ? '欢迎学习字幕测试。' : '检索增强生成是本课主题。') };
         }
       } };
       const attach = Element.prototype.attachShadow;
       Element.prototype.attachShadow = function(options) { return attach.call(this, { ...options, mode: 'open' }); };
       document.querySelector('video').currentTime = 1;
     });
-    await page.addScriptTag({ path: 'extension/adapters.js' });
-    await page.addScriptTag({ path: 'extension/content.js' });
+    for (const script of JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8')).content_scripts[0].js) await page.addScriptTag({ path: 'extension/' + script });
     await page.waitForTimeout(300);
     await page.locator('[data-light-subtitle] .box').waitFor({ state: 'hidden' });
     await page.locator('[data-suiyi-status] button').filter({ hasText: '未开启' }).waitFor();
@@ -87,9 +87,17 @@ const url = 'https://learn.deeplearning.ai/courses/retrieval-augmented-generatio
       document.querySelector('video').currentTime = 1;
       window.settingsListener({ type: 'settings', settings: { enabled: true, mode: 'translate', configurationError: '' } });
     });
-    await target.filter({ hasText: '测试译文：Welcome to' }).waitFor();
+    await target.filter({ hasText: '测试译文：欢迎学习字幕测试。' }).waitFor();
     await page.evaluate(() => { document.querySelector('video').currentTime = 4; });
-    await target.filter({ hasText: '测试译文：Retrieval Augmented Generation, or RAG' }).waitFor({ timeout: 700 });
+    await target.filter({ hasText: '测试译文：检索增强生成是本课主题。' }).waitFor({ timeout: 700 });
+    await page.evaluate(() => {
+      window.translationDelay = 0;
+      window.longTranslation = '大型企业利用系统回答产品问题，并帮助员工查询内部政策。研究人员也在探索新的应用，例如教育和医疗。这里还有一些不应该提前全部显示的后续内容。';
+      window.settingsListener({ type: 'settings', settings: { enabled: true, mode: 'translate', testRevision: 'long-response' } });
+    });
+    await target.filter({ hasText: '大型企业' }).waitFor();
+    assert.ok((await target.textContent()).length <= 38);
+    assert.ok((await target.boundingBox()).height <= 90);
     await page.evaluate(() => {
       window.settingsListener({ type: 'settings', settings: { enabled: true, mode: 'direct' } });
       history.pushState({}, '', '/courses/retrieval-augmented-generation/lesson/qq2xz/module-1-introduction');

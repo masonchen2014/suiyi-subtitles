@@ -1,130 +1,103 @@
-// 网站适配只读取播放器和页面已提供的字幕，不读取页面账户数据。
+// 适配器只负责不同网站的数据入口/容器；时间轴和字幕处理统一复用。
 globalThis.LightSubtitleAdapters = (() => {
+  const profiles = [];
+  function register(profile) { profiles.push(profile); }
   function nativeCaption(video) {
-    for (const track of Array.from(video?.textTracks || [])) {
-      if (!['subtitles', 'captions'].includes(track.kind)) continue;
-      if (track.mode === 'showing' && track.activeCues?.length) {
-        return Array.from(track.activeCues).map(cue => cue.text).join(' ').trim();
-      }
-    }
-    return '';
+    const track = Array.from(video?.textTracks || []).find(track => ['subtitles', 'captions'].includes(track.kind) && track.mode === 'showing' && track.activeCues?.length);
+    return track ? Array.from(track.activeCues).map(cue => cue.text).join(' ').trim() : '';
   }
-
+  function nativeCues(video) {
+    const track = Array.from(video?.textTracks || []).find(track => ['subtitles', 'captions'].includes(track.kind) && track.mode === 'showing' && track.cues?.length);
+    return track ? SuiyiCaptions.normalize(Array.from(track.cues).map(cue => ({ start: cue.startTime, end: cue.endTime, text: cue.text }))) : [];
+  }
   function lessonIdentity(url) {
     const match = new URL(url).pathname.match(/^\/courses\/([^/]+)\/lesson\/([^/]+)(?:\/|$)/);
     return match ? { course: decodeURIComponent(match[1]), lesson: decodeURIComponent(match[2]) } : null;
   }
-
   function extractLesson(data, url) {
-    const identity = lessonIdentity(url);
-    const props = data?.props?.pageProps;
+    const identity = lessonIdentity(url), props = data?.props?.pageProps;
     if (!identity || props?.courseName !== identity.course || props?.lessonId !== identity.lesson) return [];
     const queries = props.trpcState?.json?.queries || props.trpcState?.queries || [];
-    const query = queries.find(item => item.queryKey?.[0]?.includes('getLessonVideoSubtitle') &&
-      String(item.queryKey?.[1]?.input?.videoId) === String(props.videoId));
+    const query = queries.find(item => item.queryKey?.[0]?.includes('getLessonVideoSubtitle') && String(item.queryKey?.[1]?.input?.videoId) === String(props.videoId));
     const captions = query?.state?.data?.captions;
-    if (!Array.isArray(captions)) return [];
-    return captions.filter(cue => typeof cue.text === 'string' && Number.isFinite(cue.startInSeconds) &&
-      Number.isFinite(cue.endInSeconds) && cue.endInSeconds > cue.startInSeconds && cue.startInSeconds >= 0)
-      .map(cue => ({ start: cue.startInSeconds, end: cue.endInSeconds, text: cue.text }))
-      .sort((a, b) => a.start - b.start);
+    return Array.isArray(captions) ? SuiyiCaptions.normalize(captions.map(cue => ({ start: cue.startInSeconds, end: cue.endInSeconds, text: cue.text }))) : [];
   }
-
-  function captionAt(cues, time) {
-    return cues.filter(cue => cue.start <= time && time < cue.end).map(cue => cue.text).join(' ').trim();
-  }
-
-  function sentenceEnded(text) {
-    if (!/[.!?。！？]["'”’\)\]]*\s*$/.test(text)) return false;
-    return !/(?:\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)|\be\.g|\bi\.e|\b[A-Z])\.$/i.test(text) && !/\b(?:[A-Z]\.){2,}$/.test(text);
-  }
-  function groupSentences(raw) {
-    const result = [];
-    let group;
-    const flush = () => { if (group) result.push(group); group = undefined; };
-    for (const cue of raw) {
-      const text = cue.text.replace(/\s+/g, ' ').trim();
-      if (!text) continue;
-      if (group && cue.start - group.end > 5) flush();
-      if (!group) group = { start: cue.start, end: cue.end, text };
-      else { group.text += ' ' + text; group.end = cue.end; }
-      const length = group.text.length, duration = group.end - group.start;
-      // 优先完整句子；很长的句子优先在逗号/分号处收束，避免无限累积。
-      const clauseBoundary = (length >= 400 || duration >= 30) && /[,;，；:]\s*$/.test(text);
-      if (sentenceEnded(text) || clauseBoundary || length >= 1000 || duration >= 60) flush();
+  register({
+    id: 'deeplearning', matches: location => location.hostname === 'learn.deeplearning.ai',
+    supports: location => !!lessonIdentity(location.href),
+    container: video => video.closest('.lesson-video-player'),
+    async load({ document, url, signal, fetchPage }) {
+      const extract = doc => {
+        try { return extractLesson(JSON.parse(doc.querySelector('#__NEXT_DATA__')?.textContent || 'null'), url); } catch { return []; }
+      };
+      const initial = extract(document);
+      if (initial.length) return initial;
+      const response = await fetchPage(url, { credentials: 'same-origin', signal });
+      if (!response.ok) throw new Error('字幕加载失败');
+      return extract(new DOMParser().parseFromString(await response.text(), 'text/html'));
     }
-    flush();
-    return result;
-  }
+  });
+  register({
+    id: 'youtube', matches: location => location.hostname === 'www.youtube.com',
+    supports: location => location.pathname.startsWith('/watch'),
+    container: video => video.closest('#movie_player'),
+    liveText: document => Array.from(document.querySelectorAll('.ytp-caption-window-container .ytp-caption-segment')).map(el => el.textContent).join(' ').replace(/\s+/g, ' ').trim()
+  });
 
   function create(document, location, fetchPage = fetch) {
-    const isCourse = location.hostname === 'learn.deeplearning.ai';
-    let cues = [], rawCues = [], controller, state = 'idle';
-    function currentCues(video, grouped = true) {
-      for (const track of Array.from(video?.textTracks || [])) {
-        if (['subtitles', 'captions'].includes(track.kind) && track.mode === 'showing' && track.cues?.length) {
-          const native = Array.from(track.cues).map(cue => ({ start: cue.startTime, end: cue.endTime, text: cue.text }));
-          return grouped ? groupSentences(native) : native;
-        }
-      }
-      return grouped ? cues : rawCues;
+    const profile = profiles.find(profile => profile.matches(location)) || { id: 'native' };
+    let raw = [], controller, state = 'idle', cacheKey = '', cached = [];
+    function timeline(video) {
+      const native = nativeCues(video);
+      const cues = native.length ? native : raw;
+      const key = JSON.stringify(cues);
+      if (key !== cacheKey) { cacheKey = key; cached = SuiyiCaptions.groupSentences(cues); }
+      return { raw: cues, sentences: cached };
     }
-    function fromDocument(doc, url) {
-      try { return extractLesson(JSON.parse(doc.querySelector('#__NEXT_DATA__')?.textContent || 'null'), url); }
-      catch { return []; }
+    const live = video => nativeCaption(video) || profile.liveText?.(document, video) || '';
+    function frame(video) {
+      const data = timeline(video), time = video.currentTime;
+      const active = SuiyiCaptions.at(data.sentences, time);
+      const window = active.length ? { start: active[0].start, end: active.at(-1).end, text: active.map(cue => cue.text).join(' ') } : null;
+      return {
+        window, hasTimeline: data.raw.length > 0,
+        text: window?.text || live(video),
+        displayText: SuiyiCaptions.textAt(data.raw, time) || live(video),
+        upcoming: data.sentences.filter(cue => cue.end > time && cue.start <= time + 30).slice(0, 5).map(cue => cue.text)
+      };
     }
     return {
-      isCourse,
+      id: profile.id,
       get state() { return state; },
-      reset() { controller?.abort(); cues = []; rawCues = []; state = 'idle'; },
+      reset() { controller?.abort(); raw = []; cacheKey = ''; cached = []; state = 'idle'; },
       async load(url) {
-        controller?.abort();
-        const current = controller = new AbortController();
-        cues = []; rawCues = []; state = 'loading';
-        let next = fromDocument(document, url);
+        controller?.abort(); const current = controller = new AbortController();
+        raw = []; cacheKey = ''; state = 'loading';
         try {
-          // Next.js 单页导航后初始 JSON 可能仍属于上一课，只接受当前课程与课节。
-          if (!next.length) {
-            const response = await fetchPage(url, { credentials: 'same-origin', signal: current.signal });
-            if (!response.ok) throw new Error('课节字幕加载失败');
-            const html = await response.text();
-            if (current.signal.aborted) return;
-            next = fromDocument(new DOMParser().parseFromString(html, 'text/html'), url);
-          }
+          const next = profile.load ? await profile.load({ document, url, signal: current.signal, fetchPage }) : [];
           if (current.signal.aborted) return;
-          rawCues = next;
-          cues = groupSentences(next);
-          state = cues.length ? 'ready' : 'missing';
-        } catch (error) {
-          if (!current.signal.aborted) state = 'error';
-        }
+          raw = SuiyiCaptions.normalize(next); state = profile.load && !raw.length ? 'missing' : 'ready';
+        } catch { if (!current.signal.aborted) state = 'error'; }
       },
       video() {
-        return isCourse ? document.querySelector('.lesson-video-player video, media-player video, video') : document.querySelector('#movie_player video');
+        // 标准 HTML5 视频优先；选择实际占画面最大的播放器，避免误选隐藏预览。
+        const videos = Array.from(document.querySelectorAll('video'));
+        return videos.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] || null;
       },
       container(video) {
         if (!video) return null;
         const full = document.fullscreenElement;
         if (full && full !== video && full.contains(video)) return full;
-        return isCourse ? video.closest('.lesson-video-player, media-player, [data-media-player]') || video.parentElement : document.querySelector('#movie_player');
+        return profile.container?.(video) || video.closest('media-player, [data-media-player], .video-js, .plyr') || video.parentElement;
       },
-      caption(video) {
-        if (isCourse) return captionAt(currentCues(video), video.currentTime) || nativeCaption(video);
-        const native = nativeCaption(video);
-        if (native) return native;
-        return Array.from(document.querySelectorAll('.ytp-caption-window-container .ytp-caption-segment'))
-          .map(el => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
-      },
-      displayCaption(video) {
-        return isCourse ? captionAt(currentCues(video, false), video.currentTime) || nativeCaption(video) : '';
-      },
-      upcoming(video) {
-        if (!isCourse) return [];
-        const time = video.currentTime;
-        return currentCues(video).filter(cue => cue.end > time && cue.start <= time + 30).slice(0, 5).map(cue => cue.text);
-      },
-      supported() { return isCourse ? !!lessonIdentity(location.href) : location.pathname.startsWith('/watch'); }
+      frame,
+      window: video => frame(video).window,
+      hasTimeline: video => frame(video).hasTimeline,
+      caption: video => frame(video).text,
+      displayCaption: video => frame(video).displayText,
+      upcoming: video => frame(video).upcoming,
+      supported() { return profile.supports ? profile.supports(location) : true; }
     };
   }
-  return { create, extractLesson, captionAt, nativeCaption, groupSentences };
+  return { create, register, extractLesson, nativeCaption, captionAt: SuiyiCaptions.textAt, groupSentences: SuiyiCaptions.groupSentences };
 })();

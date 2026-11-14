@@ -140,27 +140,28 @@
       statusButton.textContent = '随译 · 请配置模型'; report('configuration'); return;
     }
     statusButton.textContent = settings.mode === 'direct' ? '随译 · 原字幕模式' : '随译 · 双语已开启';
-    if (adapter.isCourse && loadedUrl !== location.href) {
+    if (loadedUrl !== location.href) {
       loadedUrl = location.href;
       adapter.load(loadedUrl);
     }
-    const text = adapter.caption(video);
+    const frame = adapter.frame(video);
+    const text = frame.text;
     if (!text) {
       if (last) clear();
-      const messages = { loading: '正在读取本课字幕…', missing: '未找到可读取字幕，请尝试开启播放器英文 CC 或刷新本课', error: '本课字幕加载失败，请刷新页面重试' };
-      const status = adapter.isCourse && messages[adapter.state];
+      const messages = { loading: '正在读取视频字幕…', missing: '未找到可读取字幕，请尝试开启播放器 CC 或刷新页面', error: '字幕加载失败，请刷新页面重试' };
+      const status = messages[adapter.state];
       report(adapter.state === 'error' ? 'error' : adapter.state === 'loading' ? 'loading' : 'reading');
       box.hidden = !status;
       if (status) { source.textContent = ''; target.className = 'target status'; target.textContent = status; }
       return;
     }
     box.hidden = false;
-    const displayText = adapter.displayCaption(video) || text;
+    const displayText = frame.displayText || text;
     source.textContent = settings.mode === 'direct' ? '' : displayText;
     if (settings.mode === 'direct') { last = text; target.className = 'target'; target.textContent = displayText; report('direct'); return; }
-    if (adapter.isCourse) {
+    if (frame.hasTimeline) {
       schedule(text, true);
-      if (!video.paused) for (const next of adapter.upcoming(video)) schedule(next);
+      if (!video.paused) for (const next of frame.upcoming) schedule(next);
     } else if (text !== last) {
       clearTimeout(timer);
       timer = setTimeout(() => schedule(text, true), 450);
@@ -168,7 +169,7 @@
     last = text;
     const result = session.results.get(text);
     target.className = result?.text ? 'target' : 'target status';
-    target.textContent = result?.text || result?.error || '翻译中…';
+    target.textContent = result?.text ? SuiyiCaptions.displayTranslation(result.text, frame.window, video.currentTime) : result?.error || '翻译中…';
     if (result?.error) statusButton.textContent = '随译 · 翻译失败，点此设置';
     report(result?.error ? 'error' : result?.text ? 'translated' : 'translating');
   }

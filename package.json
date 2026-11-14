@@ -1,6 +1,6 @@
 {
   "name": "suiyi-subtitles",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "随译：免费、自带 API Key、可自由选择模型的视频双语字幕扩展。",
   "license": "MIT",

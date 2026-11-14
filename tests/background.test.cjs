@@ -21,7 +21,7 @@ function setup(options = {}) {
         },
         onChanged: { addListener() {} }
       },
-      runtime: { getManifest: () => ({ version: '0.4.0' }), getURL: file => 'chrome-extension://test/' + file, onInstalled: { addListener() {} }, onMessage: { addListener(fn) { listener = fn; } } },
+      runtime: { getManifest: () => JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8')), getURL: file => 'chrome-extension://test/' + file, onInstalled: { addListener() {} }, onMessage: { addListener(fn) { listener = fn; } } },
       tabs: { sendMessage: async () => {} }
     },
     fetch: async (url, options) => {

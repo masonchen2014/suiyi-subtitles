@@ -19,7 +19,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 function isSupported(sender) {
   try {
     const url = new URL(sender.url || sender.tab?.url);
-    return url.protocol === 'https:' && ['www.youtube.com', 'learn.deeplearning.ai'].includes(url.hostname);
+    return url.protocol === 'https:' && chrome.runtime.getManifest().content_scripts.some(entry => entry.matches.some(pattern => {
+      const expression = '^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+      return new RegExp(expression).test(url.href);
+    }));
   } catch { return false; }
 }
 async function publicSettings() {

@@ -1,7 +1,7 @@
 (async () => {
   const status = document.getElementById('status');
   try {
-    const tabs = await chrome.tabs.query({ url: ['https://learn.deeplearning.ai/*', 'https://www.youtube.com/watch*'] });
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts.flatMap(entry => entry.matches) });
     const course = tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
     const current = await chrome.tabs.getCurrent();
     const allTabs = await chrome.tabs.query({});
