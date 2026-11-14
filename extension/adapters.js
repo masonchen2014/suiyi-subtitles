@@ -24,6 +24,15 @@ globalThis.LightSubtitleAdapters = (() => {
   }
   register({
     id: 'deeplearning', matches: location => location.hostname === 'learn.deeplearning.ai',
+    fullTranscript: true,
+    language: 'en',
+    metadata(document) {
+      try {
+        const props = JSON.parse(document.querySelector('#__NEXT_DATA__').textContent).props.pageProps;
+        const query = props.trpcState.json.queries.find(query => query.queryKey?.[0]?.includes('getCourseBySlug'));
+        return { title: query?.state?.data?.lessons?.[props.lessonId]?.name || document.title };
+      } catch { return {}; }
+    },
     supports: location => !!lessonIdentity(location.href),
     container: video => video.closest('.lesson-video-player'),
     async load({ document, url, signal, fetchPage }) {
@@ -49,7 +58,7 @@ globalThis.LightSubtitleAdapters = (() => {
     let raw = [], controller, state = 'idle', cacheKey = '', cached = [];
     function timeline(video) {
       const native = nativeCues(video);
-      const cues = native.length ? native : raw;
+      const cues = raw.length && profile.fullTranscript ? raw : native.length ? native : raw;
       const key = JSON.stringify(cues);
       if (key !== cacheKey) { cacheKey = key; cached = SuiyiCaptions.groupSentences(cues); }
       return { raw: cues, sentences: cached };
@@ -91,6 +100,17 @@ globalThis.LightSubtitleAdapters = (() => {
         return profile.container?.(video) || video.closest('media-player, [data-media-player], .video-js, .plyr') || video.parentElement;
       },
       frame,
+      transcript(video) {
+        const data = timeline(video);
+        const track = Array.from(video.textTracks || []).find(track => ['subtitles', 'captions'].includes(track.kind) && track.mode === 'showing');
+        const loadedTrack = Array.from(video.querySelectorAll?.('track') || []).some(element => element.track === track && element.readyState === 2);
+        const fromProvided = data.raw === raw && raw.length && profile.fullTranscript;
+        return { cues: data.raw, sentences: data.sentences, language: fromProvided ? profile.language || 'und' : track?.language || 'und', completeness: data.raw.length && (loadedTrack || fromProvided) ? 'full' : 'partial' };
+      },
+      metadata() {
+        const extra = profile.metadata?.(document, location) || {};
+        return { url: location.href, ...extra, title: extra.title || document.title || '未命名视频' };
+      },
       window: video => frame(video).window,
       hasTimeline: video => frame(video).hasTimeline,
       caption: video => frame(video).text,

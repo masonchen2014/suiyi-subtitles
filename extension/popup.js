@@ -81,4 +81,5 @@ async function act(testOnly) {
 }
 byId('save').addEventListener('click', () => act(false));
 byId('test').addEventListener('click', () => act(true));
+byId('library').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'openLibrary' }));
 init();

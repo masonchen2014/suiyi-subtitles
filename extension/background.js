@@ -1,4 +1,4 @@
-importScripts('models.js');
+importScripts('models.js', 'library-core.js', 'library-store.js', 'library-api.js');
 const pending = new Map();
 const subscribers = new Set();
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -25,19 +25,25 @@ function isSupported(sender) {
     }));
   } catch { return false; }
 }
+async function openExtensionPage(filename) {
+  const url = chrome.runtime.getURL(filename);
+  const tabs = await chrome.tabs.query({ url: url + '*' });
+  return tabs.length ? chrome.tabs.update(tabs[0].id, { active: true }) : chrome.tabs.create({ url });
+}
 async function publicSettings() {
-  const settings = await chrome.storage.local.get({ enabled: false, mode: 'translate', subtitlePositions: {} });
+  const settings = await chrome.storage.local.get({ enabled: false, mode: 'translate', subtitlePositions: {}, historyEnabled: true });
   settings.configurationError = '';
   if (settings.enabled && settings.mode === 'translate') {
     try {
       const config = SuiyiModels.normalize(SuiyiModels.readConfig(await chrome.storage.local.get(['providerConfig', 'apiKey', 'model'])));
+      settings.targetLanguage = config.targetLanguage;
       if (!await chrome.permissions.contains({ origins: [SuiyiModels.permissionOrigin(config)] })) settings.configurationError = '请在随译设置中保存配置并允许访问模型服务';
     } catch (error) { settings.configurationError = error.message; }
   }
   return settings;
 }
 chrome.storage.onChanged.addListener(async (changes, area) => {
-  if (area !== 'local' || !['enabled', 'mode', 'apiKey', 'model', 'providerConfig', 'subtitlePositions'].some(key => key in changes)) return;
+  if (area !== 'local' || !['enabled', 'mode', 'apiKey', 'model', 'providerConfig', 'subtitlePositions', 'historyEnabled'].some(key => key in changes)) return;
   const settings = await publicSettings();
   for (const tabId of subscribers) {
     chrome.tabs.sendMessage(tabId, { type: 'settings', settings }).catch(() => subscribers.delete(tabId));
@@ -66,6 +72,21 @@ async function translate(text) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'setEnabled' && isSupported(sender)) {
+    chrome.storage.local.set({ enabled: message.enabled === true }).then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message.type === 'library') {
+    SuiyiLibraryApi.handle(message, sender).then(async result => {
+      if (message.action === 'record' && !result?.skipped) await chrome.storage.local.set({ lastLibraryStatus: { version: chrome.runtime.getManifest().version, completeness: result.completeness, cueCount: result.cueCount, savedAt: Date.now() } });
+      sendResponse({ result });
+    }).catch(error => sendResponse({ error: error.message }));
+    return true;
+  }
+  if (message.type === 'openLibrary' && (isSupported(sender) || SuiyiLibraryApi.trustedPage(sender))) {
+    openExtensionPage('library.html').then(() => sendResponse({ ok: true })).catch(() => sendResponse({ error: '资料库打开失败' }));
+    return true;
+  }
   if (message.type === 'saveSubtitlePosition' && isSupported(sender)) {
     const { x, y } = message.position || {};
     if (![x, y].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)) {
@@ -86,11 +107,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true }); return;
   }
   if (message.type === 'openSettings' && isSupported(sender)) {
-    const url = chrome.runtime.getURL('popup.html');
-    chrome.tabs.query({ url }).then(async tabs => {
-      if (tabs.length) return chrome.tabs.update(tabs[0].id, { active: true });
-      return chrome.tabs.create({ url });
-    }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ error: '请点击浏览器右上角的随译图标打开设置' }));
+    openExtensionPage('popup.html').then(() => sendResponse({ ok: true })).catch(() => sendResponse({ error: '请点击浏览器右上角的随译图标打开设置' }));
     return true;
   }
   if (message.type === 'testConnection') {
@@ -115,5 +132,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ error: '字幕长度不符合要求' }); return;
   }
   translate(message.text).then(text => sendResponse({ text })).catch(error => sendResponse({ error: error.name === 'TimeoutError' ? '翻译超时，请稍后重试' : error.message }));
+  return true;
+});
+chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) => {
+  SuiyiLibraryApi.external(request, sender).then(sendResponse);
   return true;
 });

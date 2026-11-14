@@ -3,6 +3,32 @@
   let last = '', timer, lastUrl = location.href, loadedUrl = '', boundVideo, connectionError = '';
   const newSession = () => ({ queue: [], pending: new Set(), results: new Map(), active: 0 });
   let session = newSession();
+  let settingsReady = false, watchedUrl = '', lastRecordedAt = 0, lastTranscriptSignature = '';
+  function currentRecord() {
+    const video = adapter.video(), metadata = adapter.metadata();
+    const source = video ? adapter.transcript(video) : { cues: [], sentences: [], completeness: 'partial', language: 'und' };
+    const translations = source.sentences.filter(cue => session.results.get(cue.text)?.text).map(cue => ({ ...cue, sourceText: cue.text, text: session.results.get(cue.text).text, targetLanguage: settings.targetLanguage || 'Chinese' }));
+    return { video: { ...metadata, position: video?.currentTime || 0, duration: Number.isFinite(video?.duration) ? video.duration : 0 }, transcript: { language: source.language, completeness: source.completeness, cues: source.cues, translations } };
+  }
+  async function recordVideo(force = false) {
+    if (!settingsReady || settings.historyEnabled === false || !adapter.supported()) return;
+    const video = adapter.video();
+    if (!video || (!force && video.paused) || (video.paused && watchedUrl !== location.href)) return;
+    if (!video.paused) watchedUrl = location.href;
+    if (!force && Date.now() - lastRecordedAt < 5000) return;
+    lastRecordedAt = Date.now();
+    const record = currentRecord(), transcript = record.transcript;
+    if (!transcript.cues.length) {
+      const frame = adapter.frame(video);
+      if (frame.displayText) transcript.cues = [{ start: video.currentTime, end: video.currentTime + .2, text: frame.displayText }];
+    }
+    const signature = JSON.stringify([transcript.completeness, transcript.cues]);
+    const snapshot = { ...record.video, transcript: { ...transcript, cues: signature === lastTranscriptSignature ? [] : transcript.cues } };
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'library', action: 'record', snapshot });
+      if (!response.error && !response.result?.skipped) lastTranscriptSignature = signature;
+    } catch { /* 本地资料库异常不影响视频字幕。 */ }
+  }
   let positionedContainer, originalPosition;
   const adapter = LightSubtitleAdapters.create(document, location);
   const host = document.createElement('div');
@@ -73,9 +99,17 @@
     reportedPhase = phase;
     chrome.runtime.sendMessage({ type: 'reportStatus', phase }).catch(() => {});
   }
-  statusButton.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'openSettings' }).catch(() => { statusButton.textContent = '随译 · 请刷新页面'; });
+  const panel = SuiyiPanel.create({
+    getCurrent: currentRecord, getSettings: () => settings,
+    setEnabled: async enabled => {
+      const response = await chrome.runtime.sendMessage({ type: 'setEnabled', enabled });
+      if (response.error) throw new Error(response.error);
+      applySettings({ ...settings, enabled });
+    },
+    openSettings: () => chrome.runtime.sendMessage({ type: 'openSettings' }),
+    openLibrary: () => chrome.runtime.sendMessage({ type: 'openLibrary' })
   });
+  statusButton.addEventListener('click', () => panel.toggle(indicator));
 
   function clear() { last = ''; clearTimeout(timer); box.hidden = true; }
   function mount(player) {
@@ -92,12 +126,13 @@
     place();
   }
   function applySettings(value) {
+    settingsReady = true;
     if (JSON.stringify(settings) === JSON.stringify(value)) return;
     const saved = value.subtitlePositions?.[location.hostname];
     if (!drag && saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) position = { ...saved };
     place();
-    const { subtitlePositions: previousPositions, ...previous } = settings;
-    const { subtitlePositions: nextPositions, ...next } = value;
+    const { subtitlePositions: previousPositions, historyEnabled: previousHistory, ...previous } = settings;
+    const { subtitlePositions: nextPositions, historyEnabled: nextHistory, ...next } = value;
     settings = value;
     if (JSON.stringify(previous) === JSON.stringify(next)) return;
     clear(); loadedUrl = ''; adapter.reset(); session = newSession();
@@ -109,6 +144,7 @@
       chrome.runtime.sendMessage({ type: 'translate', text }).then(result => {
         context.results.set(text, result || { error: '模型未返回结果' });
         if (context.results.size > 500) context.results.delete(context.results.keys().next().value);
+        if (context === session && result?.text) recordVideo(true);
       }).catch(() => context.results.set(text, { error: '插件已更新，请刷新页面' })).finally(() => {
         context.pending.delete(text); context.active--; pump(context);
       });
@@ -126,13 +162,18 @@
     pump(session);
   }
   function poll() {
-    if (location.href !== lastUrl) { lastUrl = location.href; clear(); loadedUrl = ''; adapter.reset(); session = newSession(); }
+    if (location.href !== lastUrl) { lastUrl = location.href; clear(); loadedUrl = ''; adapter.reset(); session = newSession(); watchedUrl = ''; lastTranscriptSignature = ''; lastRecordedAt = 0; panel.close(); }
     const video = adapter.video();
     if (video !== boundVideo) { boundVideo = video; clear(); }
     const player = adapter.container(video);
     if (!player || !adapter.supported()) { clear(); host.remove(); indicator.remove(); report('missing'); return; }
     mount(player);
     place();
+    if (settingsReady && (settings.enabled || settings.historyEnabled !== false) && loadedUrl !== location.href) {
+      loadedUrl = location.href;
+      adapter.load(loadedUrl).then(() => recordVideo(true));
+    }
+    recordVideo();
     if (connectionError) { clear(); statusButton.textContent = '随译 · 请刷新页面'; return; }
     if (!settings.enabled) { clear(); statusButton.textContent = '随译 · 未开启，点此设置'; report('disabled'); return; }
     if (settings.configurationError) {
@@ -140,10 +181,6 @@
       statusButton.textContent = '随译 · 请配置模型'; report('configuration'); return;
     }
     statusButton.textContent = settings.mode === 'direct' ? '随译 · 原字幕模式' : '随译 · 双语已开启';
-    if (loadedUrl !== location.href) {
-      loadedUrl = location.href;
-      adapter.load(loadedUrl);
-    }
     const frame = adapter.frame(video);
     const text = frame.text;
     if (!text) {
@@ -185,6 +222,7 @@
   refreshSettings();
   // Service Worker 重启后订阅列表会丢失，定期读取状态以恢复配置同步。
   setInterval(refreshSettings, 5000);
+  document.addEventListener('pause', () => recordVideo(true), true);
   document.addEventListener('seeking', () => {
     clear();
     // 跳转后清除尚未发出的预翻译任务；已完成结果仍可回看复用。

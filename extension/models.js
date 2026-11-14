@@ -104,5 +104,5 @@ globalThis.SuiyiModels = (() => {
   function cacheIdentity(config, text) {
     return JSON.stringify([2, config.protocol, config.baseUrl, config.model, config.targetLanguage, text]);
   }
-  return { buildVersion: '0.4.1', presets, readConfig, normalize, permissionOrigin, request, parse, translate, cacheIdentity };
+  return { buildVersion: '0.5.0', presets, readConfig, normalize, permissionOrigin, request, parse, translate, cacheIdentity };
 })();

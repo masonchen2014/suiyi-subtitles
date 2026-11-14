@@ -15,5 +15,7 @@ __pycache__/
 scripts/*
 !scripts/check.mjs
 .runtime/
+suiyi-library*.json
+suiyi-transcript*
 .DS_Store
 Thumbs.db
