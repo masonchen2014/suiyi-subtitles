@@ -60,3 +60,33 @@ test('truncated output is never accepted as a successful subtitle', () => {
 test('API failures produce actionable errors without echoing response secrets', async () => {
   await assert.rejects(models.translate(base, 'Hello', async () => ({ ok: false, status: 401, json: async () => ({ message: 'secret' }) })), /401.*API Key/);
 });
+
+test('RAG terminology reaches every protocol without changing the subtitle being translated', () => {
+  const text = "There's lots more to learn about retrievers.";
+  const context = { title: 'A conversation', path: '/courses/retrieval-augmented-generation/lesson/intro' };
+  for (const protocol of ['openai', 'anthropic', 'gemini', 'qwen-mt']) {
+    const { body } = models.request({ ...base, protocol }, text, context);
+    if (protocol === 'qwen-mt') {
+      assert.equal(body.messages.length, 1);
+      assert.equal(body.messages[0].content, text);
+      assert.match(body.translation_options.domains, /retrieval-augmented generation/);
+      assert.equal(body.translation_options.terms.find(term => term.source === 'retrievers').target, '检索器');
+    } else {
+      const system = body.system || body.systemInstruction?.parts[0].text || body.messages[0].content;
+      assert.match(system, /检索器/);
+      assert.match(system, /Translate only the subtitle/);
+    }
+  }
+});
+
+test('terminology is domain and target-language scoped; cache separates domains and old translations', () => {
+  const text = 'We love retrievers.';
+  const dog = { title: 'Golden retrievers: dog training' };
+  const rag = { title: 'RAG overview' };
+  const config = { ...base, protocol: 'qwen-mt' };
+  assert.equal(models.request(config, text, dog).body.translation_options.terms, undefined);
+  assert.equal(models.request({ ...config, targetLanguage: 'Japanese' }, text, rag).body.translation_options.terms, undefined);
+  assert.notEqual(models.cacheIdentity(base, text, dog), models.cacheIdentity(base, text, rag));
+  assert.equal(JSON.parse(models.cacheIdentity(base, text, rag))[0], 3);
+  assert.equal(models.request(config, text, { title: 'x'.repeat(10000) }).body.translation_options.domains.length < 1100, true);
+});

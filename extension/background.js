@@ -50,16 +50,16 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   }
 });
 
-async function translate(text) {
+async function translate(text, context = {}) {
   const config = SuiyiModels.normalize(SuiyiModels.readConfig(await chrome.storage.local.get(['providerConfig', 'apiKey', 'model'])));
   if (!await chrome.permissions.contains({ origins: [SuiyiModels.permissionOrigin(config)] })) throw new Error('请在随译设置中保存配置，允许访问所选模型服务');
-  const key = SuiyiModels.cacheIdentity(config, text);
+  const key = SuiyiModels.cacheIdentity(config, text, context);
   const cacheKey = 't:' + Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)))).map(x => x.toString(16).padStart(2, '0')).join('');
   const cached = await chrome.storage.local.get(cacheKey);
   if (cached[cacheKey]) return cached[cacheKey];
   if (pending.has(key)) return pending.get(key);
   const job = (async () => {
-    const result = await SuiyiModels.translate(config, text);
+    const result = await SuiyiModels.translate(config, text, fetch, context);
     // 限制本地缓存条目，避免长期观看占满扩展存储。
     const all = await chrome.storage.local.get(null);
     const keys = Object.keys(all).filter(k => k.startsWith('t:'));
@@ -131,7 +131,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (typeof message.text !== 'string' || !message.text.trim() || message.text.length > 4000) {
     sendResponse({ error: '字幕长度不符合要求' }); return;
   }
-  translate(message.text).then(text => sendResponse({ text })).catch(error => sendResponse({ error: error.name === 'TimeoutError' ? '翻译超时，请稍后重试' : error.message }));
+  // URL 仅使用可信发送页面的路径，不向模型发送查询参数或页面凭据。
+  const context = { title: message.context?.title, course: message.context?.course, path: new URL(sender.url || sender.tab.url).pathname };
+  translate(message.text, context).then(text => sendResponse({ text })).catch(error => sendResponse({ error: error.name === 'TimeoutError' ? '翻译超时，请稍后重试' : error.message }));
   return true;
 });
 chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) => {

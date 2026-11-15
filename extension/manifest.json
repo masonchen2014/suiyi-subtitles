@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "随译",
   "short_name": "随译",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "插件免费，自带 API Key，自由选择模型。支持 YouTube 与 DeepLearning.AI 视频双语字幕。模型用量由所选服务商计费。",
   "permissions": ["storage"],
   "host_permissions": ["https://dashscope.aliyuncs.com/*", "https://learn.deeplearning.ai/*", "https://www.youtube.com/*"],

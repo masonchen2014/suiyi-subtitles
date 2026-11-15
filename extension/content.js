@@ -141,7 +141,7 @@
     if (context !== session) return;
     while (context.active < 2 && context.queue.length) {
       const text = context.queue.shift(); context.active++;
-      chrome.runtime.sendMessage({ type: 'translate', text }).then(result => {
+      chrome.runtime.sendMessage({ type: 'translate', text, context: adapter.metadata() }).then(result => {
         context.results.set(text, result || { error: '模型未返回结果' });
         if (context.results.size > 500) context.results.delete(context.results.keys().next().value);
         if (context === session && result?.text) recordVideo(true);

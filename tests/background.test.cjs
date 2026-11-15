@@ -60,6 +60,20 @@ test('different endpoint and target language have independent caches', async () 
   assert.equal(app.calls[1].headers.Authorization, 'Bearer other-key');
   assert.equal(app.calls[1].body.translation_options, undefined);
 });
+
+test('page context reaches translation and cache without sending URL query credentials', async () => {
+  const app = setup();
+  const text = 'Learn more about retrievers.';
+  await app.send({ type: 'translate', text, context: { title: 'RAG overview' } }, 'https://www.youtube.com/watch?v=abc&token=private-value');
+  const options = app.calls[0].body.translation_options;
+  assert.equal(options.terms.find(term => term.source === 'retrievers').target, '检索器');
+  assert.doesNotMatch(options.domains, /private-value/);
+  await app.send({ type: 'translate', text, context: { title: 'Dog training' } });
+  assert.equal(app.count(), 2);
+  assert.equal(app.calls[1].body.translation_options.terms, undefined);
+  await app.send({ type: 'translate', text, context: { title: 'Dog training' } });
+  assert.equal(app.count(), 2);
+});
 test('unapproved model host is rejected without sending subtitles or credentials', async () => {
   const app = setup({ allowed: false });
   assert.match((await app.send({ type: 'translate', text: 'Hello' })).error, /允许访问/);

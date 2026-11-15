@@ -17,6 +17,10 @@ config:
 不使用服务商 SDK，采用标准 HTTPS JSON 请求，不允许请求携带凭据重定向。
 OpenAI 兼容请求使用 system/user messages，不夹带通义专用字段。
 Qwen-MT 的 translation_options 只在 qwen-mt 协议中发送。
+公共主题解析根据标题、课程名和页面路径识别领域，不按网站分支翻译。
+RAG 场景的中文术语通过标准聊天提示词传给通用模型；Qwen-MT 使用原生 domains / terms。
+模型层 translate(config, text, fetcher = fetch, context = {}) 支持传入主题元数据。
+context 只辅助理解，不参与字幕显示；terms 只注入当前字幕涉及的术语，中文词表不用于其他目标语言。
 Claude/Gemini 使用各自原生鉴权与响应解析，不将思考内容当作译文。
 
 新增兼容厂商：填写自定义 Base URL 与模型即可，无需改代码。
@@ -25,7 +29,7 @@ Claude/Gemini 使用各自原生鉴权与响应解析，不将思考内容当作
 
 权限：manifest 声明两个支持的网站和默认百炼地址；其他模型接口作为可选权限，在用户保存/测试时按主机申请。
 配置迁移：readConfig 兼容旧版顶层 apiKey/model；保存成功后转换为 providerConfig 与 modelProfiles。
-缓存：协议、地址、模型、目标语言、字幕、提示词版本共同决定，不含密钥。
+缓存：协议、地址、模型、目标语言、字幕、主题、术语与提示词版本共同决定，不含密钥。规则变更需递增缓存版本。
 
 验证：核心自动测试、设置页与字幕隔离浏览器测试，以及实际安装扩展的端到端测试。当前执行项目 npm test 可查看最新测试数量。
 真实厂商 API 仍需用户提供有效 Key 后使用设置页测试，不宣称所有厂商均已实测。
